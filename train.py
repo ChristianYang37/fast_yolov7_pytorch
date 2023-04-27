@@ -101,43 +101,6 @@ def train(hyp, opt, device, tb_writer=None):
     train_path = data_dict['train']
     test_path = data_dict['val']
 
-    ################################################################################
-    # Pruning
-    model.eval()
-    print(model)
-    example_inputs = torch.randn(1, 3, 224, 224).to(device)
-    imp = tp.importance.MagnitudeImportance(p=2)  # L2 norm pruning
-
-    ignored_layers = []
-    from models.yolo import Detect, IDetect
-    from models.common import ImplicitA, ImplicitM
-    for m in model.modules():
-        if isinstance(m, (Detect, IDetect)):
-            ignored_layers.append(m.m)
-    unwrapped_parameters = []
-    for m in model.modules():
-        if isinstance(m, (ImplicitA, ImplicitM)):
-            unwrapped_parameters.append((m.implicit, 1))  # pruning 1st dimension of implicit matrix
-
-    iterative_steps = 1  # progressive pruning
-    pruner = tp.pruner.MagnitudePruner(
-        model,
-        example_inputs,
-        importance=imp,
-        iterative_steps=iterative_steps,
-        ch_sparsity=0.5,  # remove 50% channels, ResNet18 = {64, 128, 256, 512} => ResNet18_Half = {32, 64, 128, 256}
-        ignored_layers=ignored_layers,
-        # unwrapped_parameters=unwrapped_parameters
-    )
-    base_macs, base_nparams = tp.utils.count_ops_and_params(model, example_inputs)
-    pruner.step()
-
-    pruned_macs, pruned_nparams = tp.utils.count_ops_and_params(model, example_inputs)
-    print(model)
-    print("Before Pruning: MACs=%f G, #Params=%f G" % (base_macs / 1e9, base_nparams / 1e9))
-    print("After Pruning: MACs=%f G, #Params=%f G" % (pruned_macs / 1e9, pruned_nparams / 1e9))
-    ####################################################################################
-
     # Freeze
     freeze = [f'model.{x}.' for x in
               (freeze if len(freeze) > 1 else range(freeze[0]))]  # parameter names to freeze (full or partial)
@@ -291,6 +254,13 @@ def train(hyp, opt, device, tb_writer=None):
     nb = len(dataloader)  # number of batches
     assert mlc < nc, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g' % (mlc, nc, opt.data, nc - 1)
 
+    # quant
+    from models.quant_yolo import dynamic_quant, static_quant
+    if opt.method == 'dynamic':
+        model = dynamic_quant(model, dtype=torch.qint8, qconfig_spec={nn.Linear})
+    elif opt.method == 'static':
+        model = static_quant(model, dataloader, opt.deploy_device)
+
     # Process 0
     if rank in [-1, 0]:
         testloader = create_dataloader(test_path, imgsz_test, batch_size * 2, gs, opt,  # testloader
@@ -345,7 +315,7 @@ def train(hyp, opt, device, tb_writer=None):
                 f'Logging results to {save_dir}\n'
                 f'Starting training for {epochs} epochs...')
     torch.save(model, wdir / 'init.pt')
-    for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
+    for idx, epoch in enumerate(range(start_epoch, epochs)):  # epoch ------------------------------------------------------------------
         model.train()
 
         # Update image weights (optional)
@@ -518,6 +488,9 @@ def train(hyp, opt, device, tb_writer=None):
                         wandb_logger.log_model(
                             last.parent, opt, epoch, fi, best_model=best_fitness == fi)
                 del ckpt
+        from prune import prune_model
+        if (idx + 1) % opt.num_epochs_to_prune:
+            prune_model(model, device, opt)
 
         # end epoch ----------------------------------------------------------------------------------------------------
     # end training
@@ -604,6 +577,11 @@ if __name__ == '__main__':
     parser.add_argument('--freeze', nargs='+', type=int, default=[0],
                         help='Freeze layers: backbone of yolov7=50, first3=0 1 2')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
+    parser.add_argument('--sparsity', type=float, default=0.05, help='pruning percentage')
+    parser.add_argument('--num_epoch_to_prune', type=int, default=4, help='how many times finetune to prune model')
+    parser.add_argument('--prune_norm', type=str, default='L2', help='prune norm, L1 or L2')
+    parser.add_argument('--method', type=str, default=None, help='method to quantify model, static or dynamic')
+    parser.add_argument('--deploy_device', type=str, default='arm')
     opt = parser.parse_args()
 
     # Set DDP variables
