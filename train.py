@@ -259,7 +259,7 @@ def train(hyp, opt, device, tb_writer=None):
     if opt.method == 'dynamic':
         model = dynamic_quant(model, dtype=torch.qint8, qconfig_spec={nn.Linear})
     elif opt.method == 'static':
-        model = static_quant(model, dataloader, opt.deploy_device)
+        model = static_quant(model, dataloader, opt.deploy_device, device)
 
     # Process 0
     if rank in [-1, 0]:
