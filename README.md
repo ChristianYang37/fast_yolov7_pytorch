@@ -88,4 +88,4 @@ Please make sure that run this command and set `epochs` = 0.
 
 This repository is for [AIRS](https://airs.cuhk.edu.cn/)'s project, the author is an undergraduate student at Sun Yat sen University.
 
-If you have any question about this repository
+Email: christiannyang37@gmail.com
