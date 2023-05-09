@@ -54,6 +54,7 @@ Prune `yolov7_training.pt` On COCO128.yaml (without finetune)
 
 | Sparsity | Macs       | num_params | mAP@.5  | mAP@.0:.95 |
 | -------- | ---------- | ---------- | ------- | ---------- |
+| 0        | 6501867771 | 37622682   | 0.817   | 0.615      |
 | 0.005    | 6379356844 | 37115689   | 0.791   | 0.541      |
 | 0.007    | 6373571463 | 37033908   | 0.783   | 0.515      |
 | 0.01     | 6324846255 | 36735256   | 0.758   | 0.508      |
@@ -62,6 +63,20 @@ Prune `yolov7_training.pt` On COCO128.yaml (without finetune)
 | 0.1      | 5237469860 | 30417686   | 0.00056 | 0.000102   |
 
 So, for more efficient pruning, we suggest you set `--sparsity` 0.01 or 0.02, and set `--num_batch_to_prune` big enough to make sure the model has fitted the data before you prune it.
+
+Speed test on `GPU=A5000, batch_size=32`
+
+
+| Sparsity | batch 32 average time / s |
+| -------- | ------------------------- |
+| 0        | 0.055983                  |
+| 0.005    | 0.044586                  |
+| 0.01     | 0.044711                  |
+| 0.05     | 0.043469                  |
+| 0.1      | 0.041813                  |
+| 0.2      | 0.037244                  |
+| 0.5      | 0.023613                  |
+| 0.7      | 0.024631                  |
 
 ### Quantization
 
