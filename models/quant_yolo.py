@@ -239,6 +239,7 @@ class Model_quant_static(nn.Module):
 
 
 def dynamic_quant(_model, dtype, qconfig_spec, save_path=None):
+    print("Dynamic quantify model------")
     model_quant = torch.quantization.quantize_dynamic(
         model=_model,
         qconfig_spec=qconfig_spec,
@@ -252,6 +253,7 @@ def dynamic_quant(_model, dtype, qconfig_spec, save_path=None):
 
 
 def static_quant(_model, data_iter, deploy_device, device, save_path=None):
+    print("Static quantify model------")
     _model.eval()
 
     if deploy_device == 'arm':
@@ -263,8 +265,8 @@ def static_quant(_model, data_iter, deploy_device, device, save_path=None):
 
     model_prepare = torch.quantization.prepare(_model)
 
-    for data in data_iter:
-        model_prepare(data.to(device))
+    for data, _, _, _ in data_iter:
+        model_prepare(data.to(device).float() / 255.0)
         del data
 
     _model = torch.quantization.convert(model_prepare)

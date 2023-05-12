@@ -34,7 +34,7 @@ For pytorch yolov7 state dicts, [click here](https://github.com/WongKinYiu/yolov
 ### Pruning & Training
 
 ```commandline
-python train.py --workers 8 --device 0 --batch-size 32 --data data/custom.yaml --img 640 640 --cfg cfg/training/yolov7-custom.yaml --weights 'yolov7_training.pt' --name yolov7-custom --hyp data/hyp.scratch.custom.yaml --sparsity 0.01 --num_epoch_to_prune 4 --prune_nore L2
+python train.py --workers 8 --device 0 --batch-size 32 --data data/custom.yaml --img 640 640 --cfg cfg/training/yolov7-custom.yaml --weights 'yolov7_training.pt' --name yolov7-custom --hyp data/hyp.scratch.custom.yaml --sparsity 0.3 --num_epoch_to_prune 4 --prune_nore L2
 ```
 
 if you want prune model without training, you can just set `epochs` = 0
@@ -46,6 +46,17 @@ if you want prune model without training, you can just set `epochs` = 0
 `num_epoch_to_prune`: prune model after `num_epoch_to_prune` times finetune
 
 `prune_norm`: L1 or L2
+
+the code actually do prune as follows
+
+````python
+    for idx, epoch in enumerate(range(start_epoch, epochs)):
+        if (idx + 1) % opt.num_epochs_to_prune:
+            yolo_pruner.step(model, device)
+
+````
+
+So, for more efficient pruning, we suggest you set `num_batch_to_prune` big enough to make sure the model has fitted the data before you prune it, and also set `epochs` optimally.
 
 #### Some Results
 
@@ -61,8 +72,6 @@ Prune `yolov7_training.pt` On COCO128.yaml (without finetune)
 | 0.02     | 6187011754 | 35974768   | 0.615   | 0.38       |
 | 0.05     | 5820065160 | 33891742   | 0.25    | 0.123      |
 | 0.1      | 5237469860 | 30417686   | 0.00056 | 0.000102   |
-
-So, for more efficient pruning, we suggest you set `--sparsity` 0.01 or 0.02, and set `--num_batch_to_prune` big enough to make sure the model has fitted the data before you prune it.
 
 Speed test on `GPU=A5000, batch_size=32`
 
@@ -81,16 +90,16 @@ Speed test on `GPU=A5000, batch_size=32`
 ### Quantization
 
 ```commandline
-python train.py --workers 8 --device 0 --batch-size 32 --data data/custom.yaml --img 640 640 --cfg cfg/training/yolov7-custom.yaml --weights 'yolov7_training.pt' --name yolov7-custom --hyp data/hyp.scratch.custom.yaml --method static --epochs 0
+python train.py --workers 8 --device 0 --batch-size 32 --data data/custom.yaml --img 640 640 --cfg cfg/training/yolov7-custom.yaml --weights 'yolov7_training.pt' --name yolov7-custom --hyp data/hyp.scratch.custom.yaml --method static
 ```
-
-Please make sure that run this command and set `epochs` = 0.
 
 #### Opts
 
 `method`: algorithm to quantify model, static or dynamic
 
 `deploy_device`: pytorch now support x86 and arm, is enabled for `method` == static only
+
+When you set `method` = dynamic, it require train data to make quantified model fit the distribution.
 
 ## <a id="index3">References</a>:
 

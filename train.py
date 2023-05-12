@@ -35,7 +35,8 @@ from utils.plots import plot_images, plot_labels, plot_results, plot_evolution
 from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first, is_parallel
 from utils.wandb_logging.wandb_utils import WandbLogger, check_wandb_resume
 
-import torch_pruning as tp
+from prune import pruner
+from models.quant_yolo import dynamic_quant, static_quant
 
 logger = logging.getLogger(__name__)
 
@@ -254,13 +255,6 @@ def train(hyp, opt, device, tb_writer=None):
     nb = len(dataloader)  # number of batches
     assert mlc < nc, 'Label class %g exceeds nc=%g in %s. Possible class labels are 0-%g' % (mlc, nc, opt.data, nc - 1)
 
-    # quant
-    from models.quant_yolo import dynamic_quant, static_quant
-    if opt.method == 'dynamic':
-        model = dynamic_quant(model, dtype=torch.qint8, qconfig_spec={nn.Linear})
-    elif opt.method == 'static':
-        model = static_quant(model, dataloader, opt.deploy_device, device)
-
     # Process 0
     if rank in [-1, 0]:
         testloader = create_dataloader(test_path, imgsz_test, batch_size * 2, gs, opt,  # testloader
@@ -315,7 +309,14 @@ def train(hyp, opt, device, tb_writer=None):
                 f'Logging results to {save_dir}\n'
                 f'Starting training for {epochs} epochs...')
     torch.save(model, wdir / 'init.pt')
-    for idx, epoch in enumerate(range(start_epoch, epochs)):  # epoch ------------------------------------------------------------------
+
+    yolo_pruner = pruner(model, device, opt)
+
+    for idx, epoch in enumerate(range(start_epoch, epochs)):  # epoch --------------------------------------------------
+        if (idx + 1) % opt.num_epochs_to_prune:
+            yolo_pruner.step(model, device)
+            ema = ModelEMA(model) if rank in [-1, 0] else None
+
         model.train()
 
         # Update image weights (optional)
@@ -488,12 +489,15 @@ def train(hyp, opt, device, tb_writer=None):
                         wandb_logger.log_model(
                             last.parent, opt, epoch, fi, best_model=best_fitness == fi)
                 del ckpt
-        from prune import prune_model
-        if (idx + 1) % opt.num_epochs_to_prune:
-            prune_model(model, device, opt)
 
         # end epoch ----------------------------------------------------------------------------------------------------
     # end training
+    # quant
+    if opt.method == 'dynamic':
+        model = dynamic_quant(model, dtype=torch.qint8, qconfig_spec={nn.Linear})
+    elif opt.method == 'static':
+        model = static_quant(model, dataloader, opt.deploy_device, device)
+
     if rank in [-1, 0]:
         # Plots
         if plots:
@@ -577,8 +581,8 @@ if __name__ == '__main__':
     parser.add_argument('--freeze', nargs='+', type=int, default=[0],
                         help='Freeze layers: backbone of yolov7=50, first3=0 1 2')
     parser.add_argument('--v5-metric', action='store_true', help='assume maximum recall as 1.0 in AP calculation')
-    parser.add_argument('--sparsity', type=float, default=0.05, help='pruning percentage')
-    parser.add_argument('--num_epoch_to_prune', type=int, default=4, help='how many times finetune to prune model')
+    parser.add_argument('--sparsity', type=float, default=0.1, help='pruning percentage')
+    parser.add_argument('--num_epochs_to_prune', type=int, default=4, help='how many times finetune to prune model')
     parser.add_argument('--prune_norm', type=str, default='L2', help='prune norm, L1 or L2')
     parser.add_argument('--method', type=str, default=None, help='method to quantify model, static or dynamic')
     parser.add_argument('--deploy_device', type=str, default='arm')
